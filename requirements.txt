@@ -1,0 +1,7 @@
+anthropic
+fastapi
+uvicorn[standard]
+httpx
+pydantic[email]
+python-dotenv
+pytest

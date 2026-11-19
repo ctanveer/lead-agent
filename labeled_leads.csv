@@ -1,0 +1,6 @@
+name,email,company,job_title,message,source,expected_tier
+Amina Rahman,amina@acmelogistics.com,Acme Logistics,VP Operations,We need a demo of your platform for 40 users.,demo_form,hot
+Sam Lee,sam@acmelogistics.com,Acme Logistics,Intern,,newsletter,cold
+Jo Bloggs,jo@gmail.com,,,,newsletter,cold
+Priya Patel,priya@northwindtraders.com,Northwind Traders,Head of Procurement,Can you send pricing for 100 seats?,pricing_page,hot
+Leo Martin,leo@contoso.io,Contoso,Marketing Manager,Downloaded the ROI guide.,content_download,warm
