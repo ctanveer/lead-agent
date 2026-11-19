@@ -1,4 +1,7 @@
-import anthropic
+import json
+import os
+
+from openai import OpenAI
 
 SYSTEM = """You are a lead qualification analyst for <YOUR COMPANY>, which sells <WHAT YOU SELL> to <WHO BUYS>.
 
@@ -20,7 +23,7 @@ RULES
 Record your result by calling the record_score tool."""
 
 _client = None
-MODEL = "claude-haiku-5-5"
+MODEL = os.getenv("OPENAI_MODEL", "gpt-5-mini")
 
 CAPS = {
     "industry_fit": 20,
@@ -31,24 +34,29 @@ CAPS = {
 }
 
 SCORE_TOOL = {
-    "name": "record_score",
-    "description": "Record the rubric scores and rationale for the lead.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            **{k: {"type": "integer", "description": f"0 to {cap}"} for k, cap in CAPS.items()},
-            "reasoning": {"type": "string"},
-            "suggested_next_step": {"type": "string"},
+    "type": "function",
+    "function": {
+        "name": "record_score",
+        "description": "Record the rubric scores and rationale for the lead.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                **{k: {"type": "integer", "description": f"0 to {cap}"} for k, cap in CAPS.items()},
+                "reasoning": {"type": "string"},
+                "suggested_next_step": {"type": "string"},
+            },
+            "required": [*CAPS, "reasoning", "suggested_next_step"],
+            "additionalProperties": False,
         },
-        "required": [*CAPS, "reasoning", "suggested_next_step"],
     },
 }
 
 
-def client() -> anthropic.Anthropic:
+def client() -> OpenAI:
     global _client
     if _client is None:
-        _client = anthropic.Anthropic(max_retries=3)  # reads ANTHROPIC_API_KEY from the environment
+        _client = OpenAI(max_retries=3)  # reads OPENAI_API_KEY from the environment
     return _client
 
 
@@ -78,19 +86,23 @@ Their message: {_clean(lead.get('message')) or 'none'}
 
 
 def score_lead(lead: dict, company: dict) -> dict:
-    response = client().messages.create(
+    response = client().chat.completions.create(
         model=MODEL,
-        max_tokens=1024,
-        system=SYSTEM,
+        max_completion_tokens=4096,  # reasoning models spend part of this on hidden reasoning
         tools=[SCORE_TOOL],
-        tool_choice={"type": "tool", "name": "record_score"},
-        messages=[{"role": "user", "content": build_prompt(lead, company)}],
+        tool_choice={"type": "function", "function": {"name": "record_score"}},
+        messages=[
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": build_prompt(lead, company)},
+        ],
     )
-    if response.stop_reason == "refusal":
+    choice = response.choices[0]
+    if choice.message.refusal:
         raise RuntimeError("Model declined to score this lead")
-    args = next((b.input for b in response.content if b.type == "tool_use"), None)
-    if args is None:
-        raise RuntimeError(f"No record_score call in response (stop_reason={response.stop_reason})")
+    call = next((c for c in choice.message.tool_calls or [] if c.function.name == "record_score"), None)
+    if call is None:
+        raise RuntimeError(f"No record_score call in response (finish_reason={choice.finish_reason})")
+    args = json.loads(call.function.arguments)
 
     parts = {k: max(0, min(cap, int(args[k]))) for k, cap in CAPS.items()}  # clamp to the rubric
     total = sum(parts.values())  # summed in code, never by the model
